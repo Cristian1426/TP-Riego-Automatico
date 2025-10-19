@@ -25,6 +25,6 @@ void mqttPublishPeriodic(){
   }
 }
 
-void mqttLoop() {
-  client.loop();
+void mqttLoop(bool *estado) {
+  *estado = client.loop();
 }
