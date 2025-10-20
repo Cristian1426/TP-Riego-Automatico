@@ -60,15 +60,13 @@ void taskMQTT(){
 }
 
 
-
-/*
 void mqttPublishPeriodic(){
   if (millis() - lastPub >= PERIOD_MS) {
-    client.publish("test/topic", "hola desde ESP32");
+    client.publish("huerta/heartbeat", "senial heartbeat");
     lastPub = millis();
   }
 }
-
+/*
 void mqttLoop(bool *estado) {
   *estado = client.loop();
 }
