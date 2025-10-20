@@ -1,6 +1,6 @@
 # 🌿 Sistema de Riego Inteligente con Mecanismo *Fail-Safe* (ESP32 + FreeRTOS + MQTT)
 
-> Proyecto académico de **Sistemas de Tiempo Real** – Universidad Tecnológica Nacional  
+> Proyecto académico de **Sistemas de Tiempo Real** – Universidad Nacional De La Plata
 > Implementación de un sistema de riego remoto, seguro y determinista, basado en **ESP32**, **FreeRTOS** y **MQTT**.
 
 ---
