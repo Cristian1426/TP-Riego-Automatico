@@ -43,18 +43,6 @@ Si el nodo actuador (ESP32) no recibe esta señal durante un tiempo predefinido 
 
 ---
 
-## 🧩 Componentes y Presupuesto (ARS)
-
-| Elemento                        | Cant. | Precio aprox. | Adquirido |
-|---------------------------------|:-----:|---------------:|:---------:|
-| ESP32 NodeMCU                   | 1     | $10.985        | ✅ |
-| Módulo Relé 1 canal 5V          | 1     | $2.500         | ⛔ |
-| Válvula solenoide 12 V ½”       | 1     | $9.512         | ⛔ |
-| Fuente de alimentación 12 V 2 A | 1     | $6.625         | ⛔ |
-| Kit protoboard + cables Dupont  | 1     | $16.839        | ✅ |
-
----
-
 ## 🧠 Software y Tecnologías
 
 - **ESP-IDF / Arduino Framework**
@@ -72,17 +60,6 @@ Si el nodo actuador (ESP32) no recibe esta señal durante un tiempo predefinido 
 | `taskWatchdog` | Alta | Supervisa heartbeat, controla el cierre seguro |
 | `taskMQTT` | Media | Escucha mensajes y publica estado |
 | `taskNet` | Baja | Mantiene conexión WiFi y publica datos periódicos |
-
----
-
-## 📅 Plan de Avance (Octubre 2025)
-
-| Semana | Actividad | % Avance |
-|:------:|------------|:---------:|
-| 1–2 | Pruebas de hardware y conexión MQTT | 20% |
-| 3–5 | Implementación del firmware RTOS | 15% |
-| 6–7 | Pruebas de watchdog y heartbeat | 15% |
-| 8–9 | Desarrollo del dashboard web | 10% |
 
 ---
 
