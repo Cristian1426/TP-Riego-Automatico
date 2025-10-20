@@ -1,101 +1,94 @@
-TP-Riego-Automatico 💧
+# 🌿 Sistema de Riego Inteligente con Mecanismo *Fail-Safe* (ESP32 + FreeRTOS + MQTT)
 
-Control remoto de un sistema de riego con mecanismo fail-safe en tiempo real, utilizando un ESP32, FreeRTOS y MQTT.
+> Proyecto académico de **Sistemas de Tiempo Real** – Universidad Tecnológica Nacional  
+> Implementación de un sistema de riego remoto, seguro y determinista, basado en **ESP32**, **FreeRTOS** y **MQTT**.
 
-Este proyecto implementa un sistema de control para una válvula solenoide de riego de 12V. La característica principal es su mecanismo de seguridad (fail-safe), que garantiza que la válvula solo permanezca abierta si recibe una señal de heartbeat (latido) constante desde el servidor. Si la comunicación se pierde durante más de 5 segundos, un watchdog de software toma el control y cierra la válvula automáticamente, previniendo inundaciones o desperdicio de agua.
+---
 
+## 📘 Descripción General
 
-=========================
-Tabla de Contenidos
-=========================
+Este proyecto implementa un sistema de **control remoto de válvula solenoide de riego (12 V)** mediante un **ESP32** conectado a un **servidor MQTT**, incorporando un mecanismo de **fail-safe en tiempo real**.
 
-* Descripción General
-* Objetivos del Proyecto
-* Arquitectura del Firmware (FreeRTOS)
-* Stack Tecnológico
-* Instalación
-* Uso
+El principio de funcionamiento se basa en una señal periódica de *heartbeat* enviada desde la base de control.  
+Si el nodo actuador (ESP32) no recibe esta señal durante un tiempo predefinido (5 s), un **watchdog** toma el control y **cierra automáticamente la válvula**, garantizando un estado seguro.
 
-=========================
-Descripción General
-=========================
+---
 
-El núcleo del sistema es un microcontrolador ESP32 que actúa como un nodo remoto. Este nodo se conecta a un servidor MQTT para recibir comandos y enviar su estado.
+## 🎯 Objetivos
 
-El principal desafío que resuelve este proyecto es la falta de fiabilidad en los sistemas de riego remotos convencionales. Si el controlador pierde conexión mientras la válvula está abierta, esta podría permanecer así indefinidamente. Nuestro sistema soluciona esto con un watchdog de conexión: el servidor debe enviar un heartbeat periódico para mantener la válvula abierta. Si el ESP32 no recibe este heartbeat en 5 segundos, asume una falla de conexión y entra en estado seguro (válvula cerrada).
+### Objetivo principal
+- Garantizar un **control seguro, determinista y confiable** del sistema de riego remoto.
 
-=========================
-Objetivos del Proyecto
-=========================
+### Objetivos específicos
+- Configurar un **broker MQTT** para la comunicación entre el servidor y el nodo remoto.  
+- Implementar **FreeRTOS en el ESP32** con una jerarquía de tareas bien definida:
+  - **Tarea crítica (Watchdog):** monitoreo del heartbeat y cierre de la válvula ante pérdida de señal.
+  - **Tarea media (Cliente MQTT):** recepción de comandos y reinicio del temporizador del watchdog.
+- Diseñar un **dashboard web** para el monitoreo remoto y envío de comandos.
 
-Objetivo Principal
-------------------
-* Garantizar un control seguro, determinista y confiable de un sistema de riego remoto.
-* Configurar un servidor MQTT con un canal dedicado para enviar señales de control (ABRIR, CERRAR, HEARTBEAT) al nodo remoto.
-* Configurar el ESP32 para operar en modo de bajo consumo y escuchar las señales MQTT.
-* Implementar un sistema multitarea en el ESP32 usando FreeRTOS, definiendo prioridades claras para las tareas críticas de seguridad.
+---
 
-Objetivo Secundario
--------------------
-* Implementar una dashboard web para la gestión y monitoreo remoto del sistema.
+## ⚙️ Arquitectura del Sistema
 
-=========================
-Arquitectura del Firmware (FreeRTOS)
-=========================
+### Nodo Base (Servidor MQTT)
+- Envía *heartbeats* y comandos de control (`ABRIR`, `CERRAR`).
+- Aloja un **dashboard web** de monitoreo.
+- Mantiene registro del estado de la válvula.
 
-El sistema operativo en tiempo real (RTOS) es esencial para garantizar que la tarea de seguridad (el watchdog) nunca sea bloqueada por tareas de menor prioridad (como la conexión de red).
-
-Tarea 1 (Prioridad Crítica): Watchdog de Conexión 🚨
----------------------------------------------------
-* Descripción: Un temporizador de alta prioridad que se reinicia con cada señal de heartbeat válida recibida vía MQTT.
-* Función Fail-Safe: Si este temporizador expira (tras 5 segundos sin señal), la tarea toma control inmediato del relé y lo lleva al estado seguro (cerrar la válvula), independientemente de lo que esté haciendo cualquier otra tarea.
-
-Tarea 2 (Prioridad Media): Cliente MQTT 📡
-------------------------------------------
-* Descripción: Se encarga de la conectividad y la lógica de negocio.
-* Funciones:
-    * Conectarse a la red Wi-Fi y al servidor MQTT.
-    * Escuchar los mensajes del servidor (comandos "ABRIR", "CERRAR").
-    * Ejecutar los comandos recibidos para controlar el relé.
-    * Función Crítica: Reiniciar el temporizador del watchdog (Tarea 1) cada vez que se recibe un heartbeat.
-
-=========================
-Stack Tecnológico
-=========================
-
-Hardware
---------
-* Microcontrolador: ESP32
-* Actuador: Válvula Solenoide de 12V
-* Interfaz: Módulo Relé (para que el ESP32 controle la válvula de 12V)
-
-Software
---------
-* Sistema Operativo: FreeRTOS (nativo de ESP-IDF o vía Arduino)
-* Protocolo de Comunicación: MQTT
-* Plataforma: ESP-IDF o Arduino Framework
-
-=========================
-Instalación
-=========================
-
-(Aquí deberías agregar las instrucciones para clonar e instalar el proyecto)
-
-Ejemplo:
-git clone https://github.com/tu-usuario/TP-Riego-Automatico.git
-cd TP-Riego-Automatico
-...instrucciones de configuración de entorno, librerías, etc.
+### Nodo Actuador (ESP32)
+- Controla un **módulo relé de 1 canal (5 V)** conectado a una **válvula solenoide de 12 V**.
+- Implementa tareas FreeRTOS con distintas prioridades.
+- Activa un **modo de bajo consumo** cuando la válvula está cerrada.
 
 
-=========================
-Uso
-=========================
+---
 
-(Aquí deberías explicar cómo usar el sistema)
+## 🧩 Componentes y Presupuesto (ARS)
 
-1.  Configurar las credenciales de Wi-Fi y del broker MQTT en el archivo config.h.
-2.  Compilar y flashear el firmware en el ESP32.
-3.  Publicar en el topic MQTT riego/control los siguientes mensajes:
-    * "ABRIR": Para abrir la válvula.
-    * "CERRAR": Para cerrar la válvula.
-4.  Importante: Se debe enviar un mensaje heartbeat (p.ej. "PING") al topic riego/heartbeat cada 4 segundos (o menos) para mantener la válvula abierta.
+| Elemento                        | Cant. | Precio aprox. | Adquirido |
+|---------------------------------|:-----:|---------------:|:---------:|
+| ESP32 NodeMCU                   | 1     | $10.985        | ✅ |
+| Módulo Relé 1 canal 5V          | 1     | $2.500         | ⛔ |
+| Válvula solenoide 12 V ½”       | 1     | $9.512         | ⛔ |
+| Fuente de alimentación 12 V 2 A | 1     | $6.625         | ⛔ |
+| Kit protoboard + cables Dupont  | 1     | $16.839        | ✅ |
+
+---
+
+## 🧠 Software y Tecnologías
+
+- **ESP-IDF / Arduino Framework**
+- **FreeRTOS** → planificación de tareas y watchdog.
+- **PubSubClient** → comunicación MQTT.
+- **HTML / JS / Node.js** → dashboard web.
+- **Mosquitto / EMQX** → broker MQTT.
+
+---
+
+## 🧵 Estructura de Tareas (FreeRTOS)
+
+| Tarea | Prioridad | Función |
+|-------|------------|---------|
+| `taskWatchdog` | Alta | Supervisa heartbeat, controla el cierre seguro |
+| `taskMQTT` | Media | Escucha mensajes y publica estado |
+| `taskNet` | Baja | Mantiene conexión WiFi y publica datos periódicos |
+
+---
+
+## 📅 Plan de Avance (Octubre 2025)
+
+| Semana | Actividad | % Avance |
+|:------:|------------|:---------:|
+| 1–2 | Pruebas de hardware y conexión MQTT | 20% |
+| 3–5 | Implementación del firmware RTOS | 15% |
+| 6–7 | Pruebas de watchdog y heartbeat | 15% |
+| 8–9 | Desarrollo del dashboard web | 10% |
+
+---
+
+## 🧰 Instalación y Uso
+
+1. **Clonar el repositorio:**
+   ```bash
+   git clone https://github.com/<usuario>/sistema-riego-esp32.git
+   cd sistema-riego-esp32
