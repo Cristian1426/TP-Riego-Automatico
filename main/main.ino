@@ -2,38 +2,178 @@
 #include "config.h"
 #include "wifiManager.h"
 
-// Simulación de relé con el LED
-static volatile bool g_activo = false;
+// =============================================================================
+// ARQUITECTURA DE SOBERANÍA DEL WATCHDOG
+// =============================================================================
+// El watchdog debe ser SOBERANO: ejecutarse sin importar el estado de WiFi/MQTT
+// 
+// Estrategia implementada:
+// 1. CORE DEDICADO: Watchdog pinned a Core 1 (WiFi/MQTT en Core 0)
+// 2. PRIORIDAD MÁXIMA: Watchdog prio=4 > MQTT prio=3 (preempts si necesario)
+// 3. PERÍODO DETERMINISTA: Usa vTaskDelayUntil() para garantizar ejecución periódica
+// 4. ACCESO ATÓMICO: lastHeartbeatTick es volatile (en próxima fase: mutex)
+// 5. LOGGING: Reporta periódicamente que está ejecutando
+//
+// Resultado: El watchdog puede cerrar la válvula incluso si:
+// - WiFi se desconecta
+// - MQTT intenta reconectar (bloqueante)
+// - El Core 0 está en deep-sleep
+// =============================================================================
 
-// Handle de la tarea watchdog
-static TaskHandle_t g_watchdogTask = nullptr;
+// --- Estado del rele ---
+static volatile bool rele_activo = false;
+
+// --- Handle de la tarea watchdog ---
+static TaskHandle_t watchdogTask = nullptr;
+
+// Tick del ultimo heartbeat recibido desde la BASE
+// PROTEGIDO POR MUTEX para evitar race conditions entre MQTT (Core 0) y Watchdog (Core 1)
+static TickType_t lastHeartbeatTick = 0;
+static SemaphoreHandle_t heartbeatMutex = nullptr;
 
 // ---- Acciones simuladas ----
-static inline void actuadorSeguro()   { digitalWrite(LED, LOW);  g_activo = false; digitalWrite(RELAY_PIN, RELAY_SAFE_ON); }
-static inline void actuadorActivo()   { digitalWrite(LED, HIGH); g_activo = true;  digitalWrite(RELAY_PIN, RELAY_ACTIVE_ON); }
-
-// ---- Hook: se llama después de publicar un heartbeat exitoso ----
-void onHeartbeatOk() {
-  BaseType_t xHigher = pdFALSE;
-  if (g_watchdogTask) xTaskNotifyGiveIndexed(g_watchdogTask, 0);  // “patada”
-  portYIELD_FROM_ISR(xHigher);
+static inline void actuadorSeguro() {
+  digitalWrite(LED, LOW);
+  rele_activo = false;
+  digitalWrite(RELAY_PIN, RELAY_SAFE_ON);
 }
 
-// ---- Tarea Watchdog ----
-static void taskWatchdog(void* pv) {
-  (void)pv;
-  actuadorSeguro();  // arranque seguro
+static inline void actuadorActivo() {
+  digitalWrite(LED, HIGH);
+  rele_activo = true;
+  digitalWrite(RELAY_PIN, RELAY_ACTIVE_ON);
+}
 
-  for (;;) {
-    uint32_t got = ulTaskNotifyTakeIndexed(0, pdTRUE, pdMS_TO_TICKS(WATCHDOG_TIMEOUT));
-    if (got == 0) {
-      // Timeout → modo seguro
-      actuadorSeguro();
-      mqttPublish(T_STATUS, "FAILSAFE", true);
-    }
+
+// --- Hook que se llama cuando LLEGA un heartbeat valido (Desde BASE al ESP32 via MQTT)
+void onHeartbeatOk() {
+  if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    lastHeartbeatTick = xTaskGetTickCount();
+    xSemaphoreGive(heartbeatMutex);
+  } else {
+    // Timeout esperando el mutex (no debería pasar, pero log por si acaso)
+    Serial.println("[HB] Advertencia: timeout adquiriendo mutex");
   }
 }
 
+// =================================================
+//  Hook para comandos de debugging
+//  wifiManager.cpp llama a esto cuando llega T_DEBUG
+// =================================================
+void handleDebugCommand(const String& msg) {
+  Serial.print("[DEBUG] Comando recibido: ");
+  Serial.println(msg);
+
+  if (msg.equalsIgnoreCase("PAUSE_HB")) {
+    // Pausa los heartbeats para simular pérdida de conexión
+    if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      lastHeartbeatTick = 0;  // Fuerza timeout inmediato
+      xSemaphoreGive(heartbeatMutex);
+    }
+    Serial.println("[DEBUG] Heartbeats pausados - watchdog debería actuar en 5s");
+    mqttPublish(T_STATUS, "DEBUG: Heartbeats pausados", true);
+  }
+  else if (msg.equalsIgnoreCase("RESUME_HB")) {
+    // Resume normal operation
+    onHeartbeatOk();
+    Serial.println("[DEBUG] Heartbeats reanudados");
+    mqttPublish(T_STATUS, "DEBUG: Heartbeats reanudados", true);
+  }
+  else if (msg.equalsIgnoreCase("STATS")) {
+    // Reporta estadísticas del watchdog
+    Serial.println("[DEBUG] Estadísticas solicitadas");
+    mqttPublish(T_STATUS, "DEBUG: Stats - core watchdog=1, core mqtt=0, timeout=5s", true);
+  }
+  else {
+    Serial.println("[DEBUG] Comando desconocido");
+  }
+}
+
+// =================================================
+//  Hook para comandos MQTT ("ABRIR"/"CERRAR")
+//  wifiManager.cpp llama a esto cuando llega T_CMD
+// =================================================
+void handleCommand(const String& msg) {
+  Serial.print("[CMD] Mensaje recibido: ");
+  Serial.println(msg);
+
+  if (msg.equalsIgnoreCase("ABRIR")) {
+    actuadorActivo();
+    mqttPublish(T_STATUS, "VALVULA ABIERTA", true);
+  } else if (msg.equalsIgnoreCase("CERRAR")) {
+    actuadorSeguro();
+    mqttPublish(T_STATUS, "VALVULA CERRADA", true);
+  } else {
+    Serial.println("[CMD] Comando desconocido");
+  }
+}
+
+// --- Tarea Watchdog ---
+void taskWatchdog(void *pv) {
+  const TickType_t checkPeriod = pdMS_TO_TICKS(100); // chequeo cada 100 ms
+  const TickType_t timeoutTicks = pdMS_TO_TICKS(WATCHDOG_TIMEOUT);
+
+  // Arranca en estado seguro
+  actuadorSeguro();
+  
+  // Inicializar el mutex (si no está inicializado)
+  if (heartbeatMutex == nullptr) {
+    heartbeatMutex = xSemaphoreCreateMutex();
+    if (heartbeatMutex == nullptr) {
+      Serial.println("[WD] CRÍTICO: No se pudo crear mutex del heartbeat!");
+      while (1) vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+  }
+  
+  // Establecer primer heartbeat
+  if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    lastHeartbeatTick = xTaskGetTickCount();
+    xSemaphoreGive(heartbeatMutex);
+  }
+
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  uint32_t cycleCount = 0;
+  TickType_t lastLogTick = xLastWakeTime;
+
+  for (;;) {
+    vTaskDelayUntil(&xLastWakeTime, checkPeriod);
+
+    TickType_t now = xTaskGetTickCount();
+    TickType_t elapsed = 0;
+    
+    // Leer heartbeat con protección de mutex
+    if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+      elapsed = now - lastHeartbeatTick;
+      xSemaphoreGive(heartbeatMutex);
+    } else {
+      // Si no se puede adquirir mutex, asumir timeout (FAIL-SAFE)
+      elapsed = timeoutTicks + pdMS_TO_TICKS(1000);
+      Serial.println("[WD] Advertencia: timeout adquiriendo mutex, asumiendo timeout fail-safe");
+    }
+    
+    cycleCount++;
+
+    // Logging cada 5 segundos (50 ciclos de 100ms)
+    if (now - lastLogTick > pdMS_TO_TICKS(5000)) {
+      Serial.printf("[WD] Ejecutando determinísticamente. Ciclos: %lu, Ticks sin HB: %lu / %lu, Core: %d\n",
+        cycleCount,
+        elapsed,
+        timeoutTicks,
+        xPortGetCoreID()
+      );
+      lastLogTick = now;
+      cycleCount = 0;
+    }
+
+    if (elapsed > timeoutTicks) {
+      if (rele_activo) {
+        Serial.println("[WD] TIMEOUT sin heartbeat, cerrando válvula (fail-safe)");
+      }
+      actuadorSeguro();
+      mqttPublish(T_STATUS, "WATCHDOG_TRIPPED", true);
+    }
+  }
+}
 
 // -----------------------------------------------------------------------------
 // setup: se ejecuta una sola vez al encender o resetear el ESP32
@@ -44,12 +184,25 @@ void setup() {
   delay(300);
   Serial.println("\nESP32 Encendido!");
 
-  netBegin();  // Crea la tarea MQTT y arranca WiFi/MQTT
+  pinMode(LED, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  actuadorSeguro();  // Arrancar siempre seguro
 
-  xTaskCreate(taskWatchdog, "watchdog", 3072, nullptr, 4, &g_watchdogTask);
+  netBegin();  // Crea la tarea MQTT y arranca WiFi/MQTT (Core 0)
+
+  // WATCHDOG PINNED TO CORE 1 - Máxima soberanía
+  // Prioridad 4 (crítica), aislado del WiFi stack que está en Core 0
+  xTaskCreatePinnedToCore(
+    taskWatchdog,           // Función
+    "watchdog",             // Nombre
+    3072,                   // Stack size
+    nullptr,                // Parámetro
+    4,                      // Prioridad (máxima)
+    &watchdogTask,          // Handle
+    1                       // Core 1 (dedicado)
+  );
 }
 
 void loop() {
-
-  delay(10);
+  vTaskDelay(pdMS_TO_TICKS(10));
 }

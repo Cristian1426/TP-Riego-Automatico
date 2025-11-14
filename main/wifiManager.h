@@ -17,3 +17,6 @@ void handleCommand(const String& msg);
 
 // Hook del watchdog: se llama DESPUES de publicar correctamente el heartbeat
 void onHeartbeatOk();
+
+// Hook para comandos de debugging (test del watchdog)
+void handleDebugCommand(const String& msg);
