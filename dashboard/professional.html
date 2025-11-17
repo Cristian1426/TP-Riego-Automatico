@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Remoto - Bomba de Agua</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Spinner pequeño para estado de reconexión */
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(0,0,0,0.15);
+            border-top: 2px solid rgba(37,99,235,0.9);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --success: #059669;
+            --danger: #dc2626;
+            --warning: #f97316;
+            --dark: #0f172a;
+            --light: #f8fafc;
+            --glass: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        html, body {
+            height: 100%;
+            width: 100%;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #1e293b;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: 100vh;
+            gap: 16px;
+            padding: 16px;
+        }
+
+        @media (max-width: 1024px) {
+            .app-container {
+                grid-template-columns: 1fr;
+                padding: 12px;
+                gap: 12px;
+            }
+        }
+
+        /* SIDEBAR */
+        .sidebar {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--dark);
+            letter-spacing: -0.5px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.connected {
+            background: var(--success);
+            box-shadow: 0 0 12px rgba(5, 150, 105, 0.6);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .channels {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .channel-btn {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.05);
+            color: #475569;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            letter-spacing: -0.3px;
+        }
+
+        .channel-btn:hover {
+            background: rgba(0, 0, 0, 0.08);
+            transform: translateX(4px);
+        }
+
+        .channel-btn.active {
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        .sidebar-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: auto;
+            padding-top: 24px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 14px;
+        }
+
+        /* MAIN CONTENT */
+        .main-content {
+            display: grid;
+            grid-template-rows: 1fr 2fr;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        /* CONTROL PANEL */
+        .control-panel {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+            align-content: start;
+        }
+
+        .control-card {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+        }
+
+        .control-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--dark);
+            letter-spacing: -1px;
+        }
+
+        .control-status {
+            font-size: 13px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(5, 150, 105, 0.1);
+            color: var(--success);
+            width: fit-content;
+            font-weight: 500;
+        }
+
+        .control-status.offline {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+        }
+
+        .control-status.warning {
+            background: rgba(249, 115, 22, 0.1);
+            color: var(--warning);
+        }
+
+        /* CONTROL BUTTONS */
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger) 0%, #b91c1c 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(0, 0, 0, 0.05);
+            color: var(--dark);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-toggle {
+            position: relative;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .btn-toggle::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            transition: left 0.4s ease;
+            z-index: -1;
+        }
+
+        .btn-toggle:hover::before {
+            left: 100%;
+        }
+
+        .btn-toggle.paused {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            color: white;
+        }
+
+        .btn-toggle.paused:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4);
+        }
+
+        .btn-toggle.active {
+            background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
+            color: white;
+        }
+
+        .btn-toggle.active:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+        }
+
+        .toggle-icon {
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.3s ease;
+        }
+
+        .btn-toggle.paused .toggle-icon {
+            animation: pauseIconAnim 0.4s ease;
+        }
+
+        .btn-toggle.active .toggle-icon {
+            animation: playIconAnim 0.4s ease;
+        }
+
+        @keyframes pauseIconAnim {
+            0% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.3) rotate(-15deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+
+        @keyframes playIconAnim {
+            0% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.3) rotate(15deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+
+        .hb-status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 8px;
+            animation: none;
+            transition: all 0.3s ease;
+        }
+
+        .hb-status-badge.active {
+            background: rgba(5, 150, 105, 0.2);
+            color: var(--success);
+            animation: badgePulse 2s ease-in-out infinite;
+        }
+
+        .hb-status-badge.paused {
+            background: rgba(249, 115, 22, 0.2);
+            color: var(--warning);
+        }
+
+        @keyframes badgePulse {
+            0%, 100% { 
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 0.7;
+                transform: scale(0.98);
+            }
+        }
+
+        /* LOG PANEL */
+        .log-panel {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 0;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .log-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--dark);
+            letter-spacing: -0.3px;
+        }
+
+        .log-clear-btn {
+            padding: 8px 12px;
+            font-size: 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            background: rgba(0, 0, 0, 0.02);
+            border-radius: 8px;
+            cursor: pointer;
+            color: #64748b;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .log-clear-btn:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .log-container {
+            padding: 16px 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .log-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .log-container::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 4px;
+        }
+
+        .log-entry {
+            display: grid;
+            grid-template-columns: 80px auto 1fr;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.03);
+            font-size: 12px;
+            line-height: 1.5;
+            transition: all 0.2s ease;
+        }
+
+        .log-time {
+            color: #94a3b8;
+            font-weight: 500;
+            flex-shrink: 0;
+        }
+
+        .log-channel {
+            color: var(--primary);
+            font-weight: 600;
+            flex-shrink: 0;
+            padding: 2px 8px;
+            background: rgba(37, 99, 235, 0.1);
+            border-radius: 4px;
+            text-align: center;
+            width: 80px;
+        }
+
+        .log-message {
+            color: #334155;
+            word-break: break-word;
+        }
+
+        .log-entry.status .log-channel {
+            background: rgba(5, 150, 105, 0.1);
+            color: var(--success);
+        }
+
+        .log-entry.command .log-channel {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--primary);
+        }
+
+        .log-entry.heartbeat .log-channel {
+            background: rgba(249, 115, 22, 0.1);
+            color: var(--warning);
+        }
+
+        .log-entry.debug .log-channel {
+            background: rgba(168, 85, 247, 0.1);
+            color: #a855f7;
+        }
+
+        .log-entry.error .log-channel {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+        }
+
+        .log-entry.error .log-message {
+            color: var(--danger);
+            font-weight: 500;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .app-container {
+                grid-template-columns: 1fr;
+            }
+
+            .control-panel {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                display: none;
+            }
+
+            .main-content {
+                grid-template-rows: auto 1fr;
+            }
+        }
+
+        /* ANIMATIONS */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .log-entry {
+            animation: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- SIDEBAR -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <div class="sidebar-title">Control MQTT</div>
+            </div>
+
+            <div class="channels">
+                <button class="channel-btn active" onclick="filterChannel('all')">
+                    Todos los Eventos
+                </button>
+                <button class="channel-btn" onclick="filterChannel('status')">
+                    Estado del Sistema
+                </button>
+                <button class="channel-btn" onclick="filterChannel('command')">
+                    Comandos Enviados
+                </button>
+                <button class="channel-btn" onclick="filterChannel('heartbeat')">
+                    Heartbeat
+                </button>
+                <button class="channel-btn" onclick="filterChannel('debug')">
+                    Debug
+                </button>
+            </div>
+
+            <div class="sidebar-stats">
+                <div class="stat-item">
+                    <span>Heartbeats:</span>
+                    <span class="stat-value" id="hbCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>Mensajes:</span>
+                    <span class="stat-value" id="msgCount">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>Conexión:</span>
+                    <span class="stat-value" id="connStatus">---</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+            <!-- CONTROL PANEL -->
+            <div class="control-panel">
+                <div class="control-card">
+                    <div class="control-label">Estado del Sistema</div>
+                    <div class="control-value" id="systemStatus">Offline</div>
+                    <div class="control-status offline" id="systemStatusBadge">Desconectado</div>
+                </div>
+
+                <div class="control-card">
+                    <div class="control-label">Estado de la Bomba</div>
+                    <div class="control-value" id="pumpStatus">---</div>
+                    <div class="control-status" id="pumpStatusBadge">---</div>
+                </div>
+
+                <div class="control-card">
+                    <div class="control-label">Última Actualización</div>
+                    <div class="control-value" id="lastUpdate" style="font-size: 18px;">--:--:--</div>
+                </div>
+
+                <div class="control-card">
+                    <div class="control-label">Conexión MQTT</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <input id="brokerInput" type="text" style="padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:13px;color:#334155;" />
+                        <div class="control-value" id="brokerAddr" style="font-size: 14px; color: #64748b;">--</div>
+                        <div style="font-size:12px;color:#475569;margin-top:6px;">El broker debe exponer un endpoint WebSocket (ws:// o wss://) para que la UI funcione desde el navegador. Ejemplo (mosquitto.conf):</div>
+                        <pre style="background:rgba(0,0,0,0.03);padding:8px;border-radius:6px;font-size:12px;margin-top:6px;">listener 9001
+protocol websockets
+</pre>
+                        <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+                            <button class="btn btn-secondary" id="brokerApplyBtn" onclick="applyBroker()">Aplicar</button>
+                            <div id="brokerSpinnerContainer" style="min-width:18px;min-height:18px"></div>
+                            <button class="btn btn-secondary" id="brokerResetBtn" onclick="resetBroker()">Restaurar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;">
+                    <div class="control-buttons">
+                        <button class="btn btn-success" onclick="sendCommand('ABRIR')">
+                            Abrir Bomba
+                        </button>
+                        <button class="btn btn-danger" onclick="sendCommand('CERRAR')">
+                            Cerrar Bomba
+                        </button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <button class="btn-toggle active" id="hbToggle" onclick="toggleHeartbeat()" title="Click para pausar/reanudar el envío de heartbeats">
+                            <span class="toggle-icon">⏸</span>
+                            <span id="hbLabel">Heartbeat</span>
+                            <span class="hb-status-badge active" id="hbBadge">ACTIVO</span>
+                        </button>
+                        <button class="btn btn-primary" onclick="sendDebugCmd('STATS')">
+                            Estadísticas
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LOG PANEL -->
+            <div class="log-panel">
+                <div class="log-header">
+                    <div class="log-title">
+                        Canal: <span id="currentChannel">Todos los Eventos</span>
+                    </div>
+                    <button class="log-clear-btn" onclick="clearLog()">
+                        Limpiar
+                    </button>
+                </div>
+                <div class="log-container" id="logContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt@4.3.8/dist/mqtt.min.js"></script>
+
+    <script>
+    // Configuración
+    const DEFAULT_BROKER = 'ws://10.210.129.196:9001';
+    // brokerUrl puede cambiarse por el usuario y se persiste en localStorage
+    let brokerUrl = localStorage.getItem('ra_broker_url') || DEFAULT_BROKER;
+        const TOPICS = {
+            status: 'huerta/status',
+            heartbeat: 'huerta/heartbeat',
+            cmd: 'huerta/cmd',
+            debug: 'huerta/debug'
+        };
+
+        // Estado
+        let state = {
+            connected: false,
+            heartbeats: 0,
+            messages: 0,
+            pumpStatus: '---',
+            systemStatus: 'Esperando conexión...',
+            hbPaused: false,
+            lastUpdate: new Date(),
+            lastESP32Message: null  // Timestamp del último mensaje del ESP32
+        };
+
+        let logMessages = [];
+        let client = null;
+        let hbInterval = null;
+        let currentFilter = 'all';
+        let renderTimeout = null;
+        let uiUpdateTimeout = null;
+        let messageBuffer = [];
+        let esp32WatchdogInterval = null;  // Monitorea si el ESP32 está respondiendo
+
+        // Conectar al cargar
+        window.addEventListener('load', () => {
+            // inicializar UI del broker
+            document.getElementById('brokerInput').value = brokerUrl.replace(/^wss?:\/\//, '');
+            document.getElementById('brokerAddr').textContent = brokerUrl.replace(/^wss?:\/\//, '');
+            setTimeout(connectMQTT, 500);
+            setInterval(updateTime, 1000);
+            // Inicializar estado del botón Heartbeat
+            updateHeartbeatButton();
+            // Monitorear estado del ESP32 cada 2 segundos
+            startESP32Watchdog();
+        });
+
+        // Monitorea si el ESP32 está respondiendo
+        function startESP32Watchdog() {
+            if (esp32WatchdogInterval) clearInterval(esp32WatchdogInterval);
+            esp32WatchdogInterval = setInterval(() => {
+                if (!state.connected) {
+                    // Si no estamos conectados al broker, el ESP32 está offline
+                    if (state.systemStatus !== 'Broker desconectado') {
+                        state.systemStatus = 'Broker desconectado';
+                        updateUI();
+                    }
+                    return;
+                }
+                
+                if (!state.lastESP32Message) return;
+                
+                const now = Date.now();
+                const timeSinceLastMessage = now - state.lastESP32Message;
+                
+                // Si pasaron más de 8 segundos sin mensajes del ESP32, marcarlo como offline
+                // (más tiempo que el timeout del watchdog de 5s)
+                if (timeSinceLastMessage > 8000) {
+                    if (state.systemStatus !== 'ESP32 Offline') {
+                        state.systemStatus = 'ESP32 Offline';
+                        log('status', '⚠️ ESP32 no responde (>8s sin mensajes)');
+                        updateUI();
+                    }
+                }
+            }, 2000);
+        }
+
+        // Conectar MQTT
+        function connectMQTT() {
+            try {
+                if (typeof mqtt === 'undefined') {
+                    setTimeout(connectMQTT, 1000);
+                    return;
+                }
+
+                log('status', 'Conectando al broker...', 'system');
+
+                client = mqtt.connect(brokerUrl, {
+                    clientId: 'industrial-dashboard-' + Date.now(),
+                    clean: true,
+                    connectTimeout: 5000,
+                    reconnectPeriod: 3000
+                });
+
+                client.on('connect', onConnected);
+                client.on('message', onMessage);
+                client.on('error', (err) => log('error', 'Error: ' + err.message));
+                client.on('offline', () => {
+                    state.connected = false;
+                    state.systemStatus = 'Broker desconectado';
+                    stopHeartbeat();
+                    log('status', '⚠️ Desconectado del broker MQTT');
+                    updateUI();
+                });
+                client.on('reconnect', () => {
+                    log('status', '🔄 Reconectando al broker...');
+                    updateUI();
+                });
+                client.on('close', () => {
+                    state.connected = false;
+                    stopHeartbeat();
+                    log('status', '❌ Conexión cerrada');
+                    updateUI();
+                });
+
+            } catch (err) {
+                log('error', 'No se pudo conectar: ' + err.message);
+                setTimeout(connectMQTT, 3000);
+            }
+        }
+
+        function onConnected() {
+            state.connected = true;
+            state.systemStatus = 'Esperando ESP32...';
+            log('status', '✅ Conectado al broker MQTT', 'system');
+            
+            client.subscribe(TOPICS.status);
+            client.subscribe(TOPICS.heartbeat);
+            client.subscribe(TOPICS.cmd);
+            client.subscribe(TOPICS.debug);
+            
+            log('status', '📡 Suscripciones activas a todos los topics');
+            
+            // Dar tiempo para que lleguen mensajes del ESP32
+            setTimeout(() => {
+                if (state.systemStatus === 'Esperando ESP32...') {
+                    state.systemStatus = 'ESP32 no detectado';
+                    log('status', '⚠️ No se detectaron mensajes del ESP32');
+                    updateUI();
+                }
+            }, 3000);
+            
+            startHeartbeat();
+            updateUI();
+        }
+
+        // Aplicar nueva URL de broker desde UI
+        function normalizeBrokerInput(input) {
+            let v = input.trim();
+            if (!v) return DEFAULT_BROKER;
+            // Si ya empieza con ws:// o wss://, usar tal cual
+            if (v.startsWith('ws://') || v.startsWith('wss://')) return v;
+            // Si incluye puerto o path, simplemente añadir ws:// delante
+            return 'ws://' + v;
+        }
+
+        function applyBroker() {
+            const raw = document.getElementById('brokerInput').value || '';
+            const newUrl = normalizeBrokerInput(raw);
+            // Guardar
+            // Mostrar estado de conexión y deshabilitar botones
+            const applyBtn = document.getElementById('brokerApplyBtn');
+            const resetBtn = document.getElementById('brokerResetBtn');
+            applyBtn.disabled = true; resetBtn.disabled = true;
+            const spinnerContainer = document.getElementById('brokerSpinnerContainer');
+            spinnerContainer.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+
+            // Intento de conexión activo con cliente temporal (sin reconexión automática)
+            const tempClient = mqtt.connect(newUrl, {
+                clientId: 'ra-test-' + Date.now(),
+                clean: true,
+                connectTimeout: 4000,
+                reconnectPeriod: 0
+            });
+
+            let settled = false;
+            const cleanup = () => {
+                try { tempClient.removeAllListeners(); } catch (e) {}
+                spinnerContainer.innerHTML = '';
+                applyBtn.disabled = false; resetBtn.disabled = false;
+            };
+
+            const onSuccess = () => {
+                if (settled) return; settled = true;
+                // Guardar y hacer swap con el cliente principal
+                localStorage.setItem('ra_broker_url', newUrl);
+                brokerUrl = newUrl;
+                document.getElementById('brokerAddr').textContent = brokerUrl.replace(/^wss?:\/\//, '');
+
+                // Cerrar cliente principal si existe
+                try { if (client) { client.end(true); client = null; } } catch (e) {}
+
+                // Adoptar tempClient como client principal y reinstalar handlers
+                client = tempClient;
+                client.on('connect', onConnected);
+                client.on('message', onMessage);
+                client.on('error', (err) => log('error', 'Error: ' + err.message));
+                client.on('offline', () => { state.connected = false; stopHeartbeat(); updateUI(); });
+
+                cleanup();
+                log('status', 'Conectado al nuevo broker: ' + brokerUrl);
+                updateUI();
+            };
+
+            const onFail = (reason) => {
+                if (settled) return; settled = true;
+                try { tempClient.end(true); } catch (e) {}
+                cleanup();
+                log('error', 'No se pudo conectar al broker: ' + reason);
+                alert('No se pudo conectar al broker: ' + reason);
+            };
+
+            tempClient.once('connect', onSuccess);
+            tempClient.once('error', (err) => onFail(err.message || err));
+
+            // Timeout de seguridad
+            setTimeout(() => {
+                if (!settled) onFail('timeout');
+            }, 4500);
+        }
+
+        function resetBroker() {
+            // Similar a applyBroker pero restaurando el broker por defecto
+            const applyBtn = document.getElementById('brokerApplyBtn');
+            const resetBtn = document.getElementById('brokerResetBtn');
+            applyBtn.disabled = true; resetBtn.disabled = true;
+            const spinnerContainer = document.getElementById('brokerSpinnerContainer');
+            spinnerContainer.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+
+            const newUrl = DEFAULT_BROKER;
+            const tempClient = mqtt.connect(newUrl, {
+                clientId: 'ra-test-' + Date.now(),
+                clean: true,
+                connectTimeout: 4000,
+                reconnectPeriod: 0
+            });
+
+            let settled = false;
+            const cleanup = () => {
+                try { tempClient.removeAllListeners(); } catch (e) {}
+                spinnerContainer.innerHTML = '';
+                applyBtn.disabled = false; resetBtn.disabled = false;
+            };
+
+            const onSuccess = () => {
+                if (settled) return; settled = true;
+                localStorage.removeItem('ra_broker_url');
+                brokerUrl = DEFAULT_BROKER;
+                document.getElementById('brokerInput').value = brokerUrl.replace(/^wss?:\/\//, '');
+                document.getElementById('brokerAddr').textContent = brokerUrl.replace(/^wss?:\/\//, '');
+
+                try { if (client) { client.end(true); client = null; } } catch (e) {}
+                client = tempClient;
+                client.on('connect', onConnected);
+                client.on('message', onMessage);
+                client.on('error', (err) => log('error', 'Error: ' + err.message));
+                client.on('offline', () => { state.connected = false; stopHeartbeat(); updateUI(); });
+
+                cleanup();
+                log('status', 'Broker restaurado a por defecto: ' + brokerUrl);
+                updateUI();
+            };
+
+            const onFail = (reason) => {
+                if (settled) return; settled = true;
+                try { tempClient.end(true); } catch (e) {}
+                cleanup();
+                log('error', 'No se pudo conectar al broker por defecto: ' + reason);
+                alert('No se pudo conectar al broker por defecto: ' + reason);
+            };
+
+            tempClient.once('connect', onSuccess);
+            tempClient.once('error', (err) => onFail(err.message || err));
+
+            setTimeout(() => { if (!settled) onFail('timeout'); }, 4500);
+        }
+
+        function onMessage(topic, payload) {
+            const msg = payload.toString();
+            
+            // Registrar que recibimos un mensaje del ESP32
+            state.lastESP32Message = Date.now();
+            
+            // Mapear topic a canal
+            let channel = 'status';
+            if (topic.includes('heartbeat')) channel = 'heartbeat';
+            else if (topic.includes('cmd')) channel = 'command';
+            else if (topic.includes('debug')) channel = 'debug';
+
+            log(channel, msg, topic);
+
+            // Actualizar estado según topic
+            if (topic === TOPICS.status) {
+                if (msg === 'online') {
+                    state.systemStatus = 'Online';
+                    log('status', '✅ ESP32 conectado correctamente');
+                } else if (msg === 'offline') {
+                    state.systemStatus = 'Offline';
+                    log('status', '❌ ESP32 desconectado');
+                } else if (msg.includes('ABIERTA')) {
+                    state.pumpStatus = 'ABIERTA';
+                    state.systemStatus = 'Online';  // Si recibe comandos, está online
+                } else if (msg.includes('CERRADA')) {
+                    state.pumpStatus = 'CERRADA';
+                    state.systemStatus = 'Online';  // Si recibe comandos, está online
+                } else if (msg.includes('WATCHDOG_TRIPPED')) {
+                    state.pumpStatus = 'CERRADA';
+                    state.systemStatus = 'Online';  // Watchdog activo = ESP32 online
+                } else {
+                    // Cualquier otro mensaje de status indica que está online
+                    state.systemStatus = 'Online';
+                }
+            } else if (topic === TOPICS.heartbeat && msg === 'ping') {
+                // Al recibir heartbeat, marcamos como Online
+                state.systemStatus = 'Online';
+            } else if (topic === TOPICS.debug) {
+                // Mensajes de debug indican que el ESP32 está respondiendo
+                state.systemStatus = 'Online';
+            }
+
+            state.messages++;
+            state.lastUpdate = new Date();
+            
+            // Debounce updateUI para evitar flasheos
+            if (uiUpdateTimeout) clearTimeout(uiUpdateTimeout);
+            uiUpdateTimeout = setTimeout(() => {
+                updateUI();
+            }, 150);
+        }
+
+        // Heartbeat - Envía automáticamente pings cada 1s para mantener el watchdog satisfecho
+        function startHeartbeat() {
+            stopHeartbeat();
+            // Enviar el primer heartbeat inmediatamente al iniciar/reanudar
+            if (client && client.connected && !state.hbPaused) {
+                try {
+                    client.publish(TOPICS.heartbeat, 'ping');
+                    state.heartbeats++;
+                    updateUI();
+                } catch (err) {
+                    log('error', 'Error enviando heartbeat inicial: ' + err.message);
+                }
+            }
+            // Continuar enviando heartbeats cada 1 segundo
+            hbInterval = setInterval(() => {
+                if (client && client.connected && !state.hbPaused) {
+                    try {
+                        client.publish(TOPICS.heartbeat, 'ping');
+                        state.heartbeats++;
+                        updateUI();
+                    } catch (err) {
+                        log('error', 'Error enviando heartbeat: ' + err.message);
+                        stopHeartbeat();
+                    }
+                }
+            }, 1000);  // Cambiar de 5000ms a 1000ms (1 segundo)
+        }
+
+        function stopHeartbeat() {
+            if (hbInterval) clearInterval(hbInterval);
+        }
+
+        // Comandos
+        function sendCommand(cmd) {
+            if (!client || !client.connected) {
+                alert('No conectado al broker');
+                return;
+            }
+            try {
+                client.publish(TOPICS.cmd, cmd);
+                log('command', `Comando enviado: ${cmd}`, TOPICS.cmd);
+                console.log('Comando enviado:', cmd);
+            } catch (err) {
+                log('error', `Error enviando comando: ${err.message}`);
+                console.error('Error:', err);
+            }
+        }
+
+        function sendDebug(cmd) {
+            if (!client || !client.connected) {
+                alert('No conectado al broker');
+                return;
+            }
+            try {
+                client.publish(TOPICS.debug, cmd);
+                log('debug', `Debug enviado: ${cmd}`, TOPICS.debug);
+                console.log('Debug enviado:', cmd);
+            } catch (err) {
+                log('error', `Error enviando debug: ${err.message}`);
+                console.error('Error:', err);
+            }
+        }
+
+        function sendDebugCmd(cmd) {
+            console.log('sendDebugCmd llamado con:', cmd);
+            if (!client) {
+                console.error('Client no existe');
+                alert('Cliente MQTT no inicializado');
+                return;
+            }
+            if (!client.connected) {
+                console.error('Client no conectado');
+                alert('No conectado al broker MQTT');
+                return;
+            }
+            try {
+                console.log('Publicando en topic:', TOPICS.debug, 'mensaje:', cmd);
+                const result = client.publish(TOPICS.debug, cmd);
+                console.log('Resultado de publish:', result);
+                
+                log('debug', `Comando DEBUG enviado: ${cmd}`, TOPICS.debug);
+            } catch (err) {
+                console.error('Error al publicar:', err);
+                log('error', `Error enviando debug: ${err.message}`);
+            }
+        }
+
+        function updateHeartbeatButton() {
+            const btn = document.getElementById('hbToggle');
+            const badge = document.getElementById('hbBadge');
+            const icon = btn.querySelector('.toggle-icon');
+
+            if (state.hbPaused) {
+                // Cuando está pausado, mostrar estado pausado con ícono play (para indicar que puede reanudarse)
+                btn.classList.remove('active');
+                btn.classList.add('paused');
+                icon.textContent = '▶';  // Play: indica "presiona para reanudar"
+                badge.className = 'hb-status-badge paused';
+                badge.textContent = 'PAUSADO';
+                btn.setAttribute('aria-pressed', 'true');
+                btn.title = 'Click para REANUDAR el envío de heartbeats';
+            } else {
+                // Cuando está activo, mostrar estado activo con ícono pausa (para indicar que puede pausarse)
+                btn.classList.remove('paused');
+                btn.classList.add('active');
+                icon.textContent = '⏸';  // Pausa: indica "presiona para pausar"
+                badge.className = 'hb-status-badge active';
+                badge.textContent = 'ACTIVO';
+                btn.setAttribute('aria-pressed', 'false');
+                btn.title = 'Click para PAUSAR el envío de heartbeats';
+            }
+        }
+
+        function toggleHeartbeat() {
+            if (state.hbPaused) {
+                // Reanudar heartbeat - simplemente reactivar el envío automático
+                state.hbPaused = false;
+                startHeartbeat();
+                log('status', '✅ Heartbeat reanudado - enviando pings cada 1s');
+            } else {
+                // Pausar heartbeat - detener el envío (para testing/debugging)
+                state.hbPaused = true;
+                stopHeartbeat();
+                log('status', '⏸ Heartbeat pausado - Watchdog esperará hasta timeout (~5s)');
+            }
+            updateHeartbeatButton();
+            updateUI();
+        }
+
+        // Logging
+        function log(channel, message, topic = '') {
+            const time = new Date().toLocaleTimeString();
+            logMessages.push({ time, channel, message, topic });
+            if (logMessages.length > 200) logMessages.shift();
+            
+            // Usar debounce para renderizar solo cada 100ms máximo
+            if (renderTimeout) clearTimeout(renderTimeout);
+            renderTimeout = setTimeout(() => {
+                renderLog();
+            }, 100);
+        }
+
+        function renderLog() {
+            const filtered = currentFilter === 'all' 
+                ? logMessages 
+                : logMessages.filter(m => m.channel === currentFilter);
+
+            const container = document.getElementById('logContainer');
+            
+            // Mostrar los más recientes primero (invertir array)
+            const reversed = [...filtered].reverse();
+            
+            // Crear HTML - los más recientes estarán arriba
+            let html = '';
+            for (let i = 0; i < reversed.length; i++) {
+                const entry = reversed[i];
+                html += `<div class="log-entry ${entry.channel}">
+                    <div class="log-time">${entry.time}</div>
+                    <div class="log-channel">${entry.channel.toUpperCase()}</div>
+                    <div class="log-message">${escapeHtml(entry.message)}</div>
+                </div>`;
+            }
+            
+            container.innerHTML = html;
+            // Scroll al inicio para ver los logs más recientes
+            container.scrollTop = 0;
+        }
+
+        function filterChannel(filter) {
+            currentFilter = filter;
+            
+            // Actualizar botones
+            document.querySelectorAll('.channel-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Actualizar título y render
+            const titles = {
+                'all': 'Todos los Eventos',
+                'status': 'Estado del Sistema',
+                'command': 'Comandos Enviados',
+                'heartbeat': 'Heartbeat',
+                'debug': 'Debug'
+            };
+            document.getElementById('currentChannel').textContent = titles[filter];
+            renderLog();
+        }
+
+        function clearLog() {
+            logMessages = [];
+            renderLog();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // UI Updates
+        function updateUI() {
+            const connected = client && client.connected;
+            
+            // Status indicator - verde solo si broker conectado
+            document.getElementById('statusIndicator').className = 
+                'status-indicator' + (connected ? ' connected' : '');
+            
+            // System status - mostrar el estado actual
+            document.getElementById('systemStatus').textContent = state.systemStatus;
+            
+            // Badge de sistema - verde solo si ESP32 está online
+            const isOnline = state.systemStatus === 'Online';
+            const isWaiting = state.systemStatus.includes('Esperando');
+            const isBrokerIssue = state.systemStatus.includes('Broker') || state.systemStatus.includes('MQTT');
+            
+            let statusBadgeText = 'Desconectado';
+            let statusBadgeClass = 'control-status offline';
+            
+            if (isOnline) {
+                statusBadgeText = 'Online';
+                statusBadgeClass = 'control-status';
+            } else if (isWaiting || isBrokerIssue) {
+                statusBadgeText = 'Esperando';
+                statusBadgeClass = 'control-status warning';
+            }
+            
+            document.getElementById('systemStatusBadge').textContent = statusBadgeText;
+            document.getElementById('systemStatusBadge').className = statusBadgeClass;
+
+            // Pump status
+            document.getElementById('pumpStatus').textContent = state.pumpStatus;
+            document.getElementById('pumpStatusBadge').textContent = 
+                state.pumpStatus === 'ABIERTA' ? 'Abierta' : (state.pumpStatus === 'CERRADA' ? 'Cerrada' : '---');
+            document.getElementById('pumpStatusBadge').className = 
+                state.pumpStatus === 'ABIERTA' 
+                    ? 'control-status' 
+                    : (state.pumpStatus === 'CERRADA' ? 'control-status' : 'control-status offline');
+
+            // Stats
+            document.getElementById('hbCount').textContent = state.heartbeats;
+            document.getElementById('msgCount').textContent = state.messages;
+            document.getElementById('connStatus').textContent = connected ? 'OK' : '---';
+        }
+
+        function updateTime() {
+            document.getElementById('lastUpdate').textContent = 
+                new Date().toLocaleTimeString();
+            updateUI();
+        }
+    </script>
+</body>
+</html>

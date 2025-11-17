@@ -65,24 +65,26 @@ void handleDebugCommand(const String& msg) {
   Serial.println(msg);
 
   if (msg.equalsIgnoreCase("PAUSE_HB")) {
-    // Pausa los heartbeats para simular pérdida de conexión
+    // Simula pérdida de conexión forzando el timestamp del heartbeat a 0
+    // El watchdog detectará el timeout y cerrará la válvula después de 5 segundos
     if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
       lastHeartbeatTick = 0;  // Fuerza timeout inmediato
       xSemaphoreGive(heartbeatMutex);
     }
-    Serial.println("[DEBUG] Heartbeats pausados - watchdog debería actuar en 5s");
-    mqttPublish(T_STATUS, "DEBUG: Heartbeats pausados", true);
+    Serial.println("[DEBUG] ⏸ Simulando pérdida de heartbeat - watchdog activará en 5s");
+    mqttPublish(T_STATUS, "DEBUG: Heartbeat timestamp reiniciado (timeout en 5s)", true);
   }
   else if (msg.equalsIgnoreCase("RESUME_HB")) {
-    // Resume normal operation
+    // Restaura el timestamp del heartbeat como si acabara de llegar uno
+    // Esto evita que el watchdog actúe inmediatamente
     onHeartbeatOk();
-    Serial.println("[DEBUG] Heartbeats reanudados");
-    mqttPublish(T_STATUS, "DEBUG: Heartbeats reanudados", true);
+    Serial.println("[DEBUG] ✅ Heartbeat timestamp restaurado");
+    mqttPublish(T_STATUS, "DEBUG: Timestamp de heartbeat actualizado", true);
   }
   else if (msg.equalsIgnoreCase("STATS")) {
     // Reporta estadísticas del watchdog
     Serial.println("[DEBUG] Estadísticas solicitadas");
-    mqttPublish(T_STATUS, "DEBUG: Stats - core watchdog=1, core mqtt=0, timeout=5s", true);
+    mqttPublish(T_STATUS, "DEBUG: Stats - core watchdog=1, core mqtt=0, timeout=5s, heartbeat=1s", true);
   }
   else {
     Serial.println("[DEBUG] Comando desconocido");
@@ -117,13 +119,7 @@ void taskWatchdog(void *pv) {
   actuadorSeguro();
   
   // Inicializar el mutex (si no está inicializado)
-  if (heartbeatMutex == nullptr) {
-    heartbeatMutex = xSemaphoreCreateMutex();
-    if (heartbeatMutex == nullptr) {
-      Serial.println("[WD] CRÍTICO: No se pudo crear mutex del heartbeat!");
-      while (1) vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-  }
+  // El mutex del heartbeat se crea en setup() para evitar races con MQTT.
   
   // Establecer primer heartbeat
   if (xSemaphoreTake(heartbeatMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -187,6 +183,14 @@ void setup() {
   pinMode(LED, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
   actuadorSeguro();  // Arrancar siempre seguro
+
+  // Crear mutex del heartbeat tempranamente para evitar race condition
+  // si llega un heartbeat via MQTT antes de que la tarea watchdog arranque.
+  heartbeatMutex = xSemaphoreCreateMutex();
+  if (heartbeatMutex == nullptr) {
+    Serial.println("[SETUP] CRÍTICO: No se pudo crear mutex del heartbeat!");
+    while (1) vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 
   netBegin();  // Crea la tarea MQTT y arranca WiFi/MQTT (Core 0)
 
