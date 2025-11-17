@@ -5,12 +5,12 @@
 #include <PubSubClient.h>
 
 // === Estado global privado del módulo ===
-static WiFiClient      s_wifi;
-static PubSubClient    s_client(s_wifi);
-static TaskHandle_t    s_mqttTaskHandle = nullptr;
+static WiFiClient s_wifi;
+static PubSubClient s_client(s_wifi);
+static TaskHandle_t s_mqttTaskHandle = nullptr;
 
-static unsigned long   s_lastHB = 0;
-static bool            s_ledState = false;
+static unsigned long s_lastHB = 0;
+static bool s_ledState = false;
 
 // Prototipos
 static void ensureWifi();
@@ -25,20 +25,13 @@ static void taskMqtt(void*);
 static String chipId() {
   uint64_t mac = ESP.getEfuseMac();
   char buf[17];
-  snprintf(buf, sizeof(buf), "%04X%08X", (uint16_t)(mac>>32), (uint32_t)mac);
+  snprintf(buf, sizeof(buf), "%04X%08X", (uint16_t)(mac >> 32), (uint32_t)mac);
   return String(buf);
 }
 
 // ============ API pública ============
 
 void netBegin() {
-  pinMode(LED, OUTPUT);
-  digitalWrite(LED, LOW);
-
-  // >>> INICIALIZACIÓN DEL RELÉ <<<
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, RELAY_SAFE_ON);
-
   // Config WiFi y Modo estacion
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -47,21 +40,23 @@ void netBegin() {
   s_client.setServer(MQTT_HOST, MQTT_PORT);
   s_client.setCallback(mqttCallback);
 
-  // Arranca tarea MQTT (core libre, prioridad media)
+  // Arranca tarea MQTT EN CORE 0 (donde está el WiFi stack)
+  // Prioridad media (3), separada del watchdog que está en Core 1
   if (!s_mqttTaskHandle) {
-    xTaskCreate(
+    xTaskCreatePinnedToCore(
       taskMqtt,
       "mqttService",
-      4096,           // stack
+      4096,        // stack
       nullptr,
-      2,              // prioridad
-      &s_mqttTaskHandle
+      3,           // prioridad media
+      &s_mqttTaskHandle,
+      0            // Core 0 (WiFi)
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// mqttConnected: devuelve TRUE si hay sesion MQTT activa 
+// mqttConnected: devuelve TRUE si hay sesion MQTT activa
 // -----------------------------------------------------------------------------
 bool mqttConnected() {
   return s_client.connected();
@@ -75,7 +70,6 @@ bool mqttPublish(const char* topic, const char* payload, bool retained) {
   return s_client.publish(topic, payload, retained);
 }
 
-
 // -----------------------------------------------------------------------------
 // mqttPublish: asegura la conexion al WiFi, MQTT y publica el heartbeat
 // -----------------------------------------------------------------------------
@@ -83,15 +77,6 @@ void mqttServiceOnce() {
   ensureWifi();
   ensureMqtt();
   s_client.loop();
-
-  // Heartbeat cada PERIOD_HB_MS
-  unsigned long now = millis();
-  if (now - s_lastHB >= PERIOD_HB_MS) {
-    s_lastHB = now;
-    if (s_client.publish(T_HEARTBEAT, "alive")) {
-      onHeartbeatOk();
-    }
-  }
 }
 
 // ============ Internas ============
@@ -112,9 +97,9 @@ static void ensureMqtt() {
   // Si el ESP32 desaparece el broker publica offline
   String cid = "esp32-" + chipId();
   const char* willTopic = T_STATUS;
-  const char* willMsg   = "offline";
-  int  willQos          = 0;
-  bool willRetain       = true;
+  const char* willMsg = "offline";
+  int willQos = 0;
+  bool willRetain = true;
 
   while (!s_client.connected()) {
     ensureWifi();
@@ -126,8 +111,17 @@ static void ensureMqtt() {
     if (s_client.connect(cid.c_str(), nullptr, nullptr, willTopic, willQos, willRetain, willMsg)) {
       // Si conecta
       s_client.publish(T_STATUS, "online", true);
+
+      // Comandos de la base al actuador
       s_client.subscribe(T_CMD, 0);
-    } else {
+
+      // Heartbeat de la base al actuador
+      s_client.subscribe(T_HEARTBEAT, 0);
+      
+      // Comandos de debugging (test del watchdog)
+      s_client.subscribe(T_DEBUG, 0);
+    }
+    else {
       // Espera y reintenta
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -140,35 +134,23 @@ static void mqttCallback(char* topic, byte* payload, unsigned int len) {
   msg.trim();
 
   if (strcmp(topic, T_CMD) == 0) {
-    String up = msg; up.toUpperCase();
-    if (up == "ABRIR") {
-      s_ledState = true;
-      digitalWrite(LED, HIGH);
-        digitalWrite(RELAY_PIN, RELAY_ACTIVE_ON);   // activar relé
-      s_client.publish(T_STATUS, "VALVULA_ABIERTA", true);
-    } else if (up == "CERRAR") {
-      s_ledState = false;
-      digitalWrite(LED, LOW);
-        digitalWrite(RELAY_PIN, RELAY_SAFE_ON);     // estado seguro
-      s_client.publish(T_STATUS, "VALVULA_CERRADA", true);
-    } else {
-      s_client.publish(T_STATUS, "CMD:UNKNOWN", false);
-    }
+    // Solo reenviamos el comando a la app
     handleCommand(msg);
   }
+  else if (strcmp(topic, T_HEARTBEAT) == 0) {
+    // Heartbeat desde la BASE → alimentar watchdog
+    onHeartbeatOk();
+  }
+  else if (strcmp(topic, T_DEBUG) == 0) {
+    // Comandos de debugging para verificar watchdog
+    handleDebugCommand(msg);
+  }
 }
+
 
 static void taskMqtt(void*) {
   for (;;) {
     mqttServiceOnce();
-    vTaskDelay(pdMS_TO_TICKS(20)); // ceder CPU, evita WDT
+    vTaskDelay(pdMS_TO_TICKS(10));  // ceder CPU, evita WDT
   }
-}
-
-// ============ Hooks opcionales ============
-
-void handleCommand(const String& msg) {
-  // Punto de extensión: acá podés enganchar tu lógica sin tocar el core.
-  // Ejemplo: Serial log corto
-  Serial.print("[CMD] "); Serial.println(msg);
 }
