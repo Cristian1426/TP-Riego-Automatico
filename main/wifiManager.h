@@ -1,10 +1,22 @@
-#include <PubSubClient.h>
+#include <Arduino.h>
 
-constexpr uint32_t PERIOD_MS = 5000;  // OK, al ser constexpr no duplica símbolos
+// Inicializa WiFi + MQTT y crea la tarea MQTT
+void netBegin();
 
-void netBegin();                  // conecta WiFi y MQTT
-void mqttLoop(bool *estado);      // client.loop()
-void mqttPublishPeriodic();      // publish cada PERIOD_MS
-void onMqttMsg(char* topic, byte* payload, unsigned int len);
-void taskMQTT();
-void replyMsg(String msg);
+// Publica manualmente
+bool mqttPublish(const char* topic, const char* payload, bool retained = false);
+
+// Iteracion manual
+void mqttServiceOnce();
+
+// Consulta estado de conexion MQTT
+bool mqttConnected();
+
+// Hook para comandos
+void handleCommand(const String& msg);
+
+// Hook del watchdog: se llama DESPUES de publicar correctamente el heartbeat
+void onHeartbeatOk();
+
+// Hook para comandos de debugging (test del watchdog)
+void handleDebugCommand(const String& msg);
